@@ -1176,7 +1176,54 @@ def get_test_inputs(prompt_len, num_prompts, tokenizer):
     return (input_ids[0],) * num_prompts
 
 
+import pynvml
+
+def get_actual_free_gpu_memory(device_id=0):
+    pynvml.nvmlInit()  # NVML 초기화
+    handle = pynvml.nvmlDeviceGetHandleByIndex(device_id)
+
+    # 총 GPU 메모리
+    total_memory = pynvml.nvmlDeviceGetMemoryInfo(handle).total
+    # 현재 프로세스들이 사용 중인 메모리
+    used_memory = pynvml.nvmlDeviceGetMemoryInfo(handle).used
+    # 실제 사용 가능한 메모리
+    free_memory = total_memory - used_memory
+
+    pynvml.nvmlShutdown()  # NVML 종료
+    return total_memory, free_memory
+
+
+def get_torch_device_id(torch_device=None):
+    if torch.cuda.is_available():
+        return torch.cuda.current_device()
+    else:
+        raise RuntimeError("CUDA is not available. Please ensure a GPU is available.")
+
+
+def calculate_weight_allocation_policy(free_memory, model_size, safety_factor=1.25):
+    """
+    가중치 데이터를 GPU와 CPU에 할당할 비율을 계산합니다.
+
+    Args:
+        free_memory (int): GPU에서 사용 가능한 메모리 (바이트 단위).
+        model_weight_size (int): 모델 가중치의 총 크기 (바이트 단위).
+        safety_factor (float): 추가 여유 메모리 비율.
+
+    Returns:
+        (gpu_weight_percent, cpu_weight_percent): GPU와 CPU 비율 (% 단위).
+    """
+    required_memory = model_size * safety_factor
+    if free_memory >= required_memory:
+        return 100, 0  # 모든 가중치를 GPU에 저장
+    else:
+        gpu_weight_percent = int((free_memory / required_memory) * 100)
+        cpu_weight_percent = 100 - gpu_weight_percent
+        return gpu_weight_percent, cpu_weight_percent
+
+
+
 def run_flexllmgen(args):
+
     print(f"<run_flexllmgen>: args.model: {args.model}")
     if args.model == "facebook/galactica-30b":
         tokenizer = AutoTokenizer.from_pretrained("facebook/galactica-30b", padding_side="left")
@@ -1194,26 +1241,65 @@ def run_flexllmgen(args):
     disk = TorchDisk(args.offload_dir)
     env = ExecutionEnv(gpu=gpu, cpu=cpu, disk=disk, mixed=TorchMixedDevice([gpu, cpu, disk]))
 
-    policy = Policy(args.gpu_batch_size, args.num_gpu_batches,
-                    args.percent[0], args.percent[1],
-                    args.percent[2], args.percent[3],
-                    args.percent[4], args.percent[5],
-                    args.overlap, args.sep_layer, args.pin_weight,
-                    args.cpu_cache_compute, args.attn_sparsity,
-                    args.compress_weight,
-                    CompressionConfig(num_bits=4, group_size=64,
-                                      group_dim=0, symmetric=False),
-                    args.compress_cache,
-                    CompressionConfig(num_bits=4, group_size=64,
-                                      group_dim=2, symmetric=False))
-    assert not (args.compress_cache and args.attn_sparsity < 1.0), "Not implemented"
+    ###############3
+    # TorchDevice에서 GPU ID 가져오기
+    device_id = get_torch_device_id(gpu)
+    print(f"Using GPU ID: {device_id}")
 
+    torch.cuda.empty_cache()
+    # GPU 메모리 확인
+    total_memory, free_memory = get_actual_free_gpu_memory(device_id)
+    print(f"Total GPU memory: {total_memory / 1e9:.2f} GB")
+    print(f"Free GPU memory: {free_memory / 1e9:.2f} GB")
+
+    # 모델 크기와 할당 비율 계산
     opt_config = get_opt_config(args.model)
+
+    # 어텐션 캐시를 GPU에 100% 저장
+    cache_gpu_percent = 100
+    cache_cpu_percent = 0
+
+    # 가중치 데이터 크기
+    model_weight_size = opt_config.model_bytes()
     cache_size = opt_config.cache_bytes(num_prompts, prompt_len + gen_len)
     hidden_size = opt_config.hidden_bytes(num_prompts, prompt_len + gen_len)
+
     print(f"model size: {opt_config.model_bytes()/GB:.3f} GB, "
           f"cache size: {cache_size/GB:.3f} GB, "
           f"hidden size (prefill): {hidden_size/GB:.3f} GB")
+
+    # 가중치에 대한 GPU/CPU 비율 계산
+    w_gpu_percent, w_cpu_percent = calculate_weight_allocation_policy(free_memory, model_weight_size + cache_size + hidden_size)
+    print(f"Setting weight GPU percent to {w_gpu_percent}%")
+    print(f"Setting weight CPU percent to {w_cpu_percent}%")
+    ###############
+    policy = Policy(
+        gpu_batch_size=args.gpu_batch_size,
+        num_gpu_batches=args.num_gpu_batches,
+        w_gpu_percent=w_gpu_percent,
+        w_cpu_percent=w_cpu_percent,
+        # cache_gpu_percent=w_gpu_percent,
+        # cache_cpu_percent=w_cpu_percent,
+        cache_gpu_percent=100,
+        cache_cpu_percent=0,
+        act_gpu_percent=100,  # 활성화 데이터도 GPU에 저장
+        act_cpu_percent=0,
+        overlap=args.overlap,
+        sep_layer=args.sep_layer,
+        pin_weight=args.pin_weight,
+        cpu_cache_compute=args.cpu_cache_compute,
+        attn_sparsity=args.attn_sparsity,
+        compress_weight=args.compress_weight,
+        comp_weight_config=CompressionConfig(
+            num_bits=4, group_size=64, group_dim=0, symmetric=False
+        ),
+        compress_cache=args.compress_cache,
+        comp_cache_config=CompressionConfig(
+            num_bits=4, group_size=64, group_dim=2, symmetric=False
+        ),
+    )
+
+    assert not (args.compress_cache and args.attn_sparsity < 1.0), "Not implemented"
 
     print("init weight...")
     model = OptLM(opt_config, env, args.path, policy)
@@ -1316,6 +1402,11 @@ def add_parser_arguments(parser):
 
     parser.add_argument("--overlap", type=str2bool, nargs='?',
         const=True, default=True)
+
+
+
+
+
 
 
 if __name__ == "__main__":
