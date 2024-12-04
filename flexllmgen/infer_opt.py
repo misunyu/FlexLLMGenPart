@@ -95,6 +95,7 @@ def init_weight_list(weight_specs, policy, env):
 
     sizes = [np.prod(spec[0]) for spec in weight_specs]
     sizes_cumsum = np.cumsum(sizes)
+
     ret = []
     for i in range(len(weight_specs)):
         mid_percent = (sizes_cumsum[i] - sizes[i] / 2) / sizes_cumsum[-1]
@@ -128,6 +129,12 @@ def init_weight_list(weight_specs, policy, env):
                     x.load_from_np(np.ones(x.shape, torch_dtype_to_np_dtype[x.dtype]))
 
         ret.append(weight)
+
+        # for i in range(len(weight_specs)):
+        #     shape, dtype, filename = weight_specs[i]
+        #     size = np.prod(shape) * np.dtype(dtype).itemsize  # 바이트 단위 크기 계산
+        #     print(f"Weight {i}: name = {filename}, Shape = {shape}, Size = {size / (1024 ** 2):.2f} MB")
+
     return ret
 
 
@@ -585,6 +592,7 @@ class OptLM:
                  env: ExecutionEnv,
                  path: str,
                  policy: Policy):
+        self.total_synch_time = 0.0
         if isinstance(config, str):
             config = get_opt_config(config)
         self.config = config
@@ -651,22 +659,30 @@ class OptLM:
         self.layers[j].init_weight(self.weight_home[j], expanded_path)
 
     def load_weight(self, i, j, k, overlap=True):
-        print("load weight overlap = ", overlap)
+        # print("load weight overlap = ", overlap)
+        # start_time = time.time()
+
         # Handle corner cases
         if j == self.num_layers:
-            print("j == self.num_layers")
+            # print("j == self.num_layers")
             j = 0
             i += 1
             if i == self.execute_gen_len:
-                print("i == self.execute_gen_len")
+                # print("i == self.execute_gen_len")
                 return
 
         # Load from weight_home to weight_read_buf
         if overlap:
             with torch.cuda.stream(self.load_weight_stream):
                 self.layers[j].load_weight(self.weight_home[j], self.weight_read_buf[j], k)
+
         else:
             self.layers[j].load_weight(self.weight_home[j], self.weight_read_buf[j], k)
+
+        # end_time = time.time()
+        # elapsed_time_us = (end_time - start_time) * 1_000_000
+        # print(f"Load weight time for Layer {j}, Batch {k}: {elapsed_time_us:.2f} µs")
+
 
     def delete_weight(self, j, k):
         if k == 0:
@@ -785,6 +801,8 @@ class OptLM:
                 x.val = x.val.move(self.act_home)
 
     def compute_layer(self, i, j, k):
+        # start_time = time.time()
+
         # Update the hidden in place
         # Clear the weight_read_buf if it is the last gpu batch
         # Clear the cache_read_buf
@@ -793,9 +811,24 @@ class OptLM:
             self.weight_read_buf[j], self.attention_mask[k],
             self.cache_write_buf[j][k], i, k)
 
+        # print(self.layers[j])
+        # end_time = time.time()
+        # layer_time = (end_time - start_time) * 1000  # 밀리초 단위로 변환
+
+        # print(f"{i}th Token Layer {j}, Batch {k}: Compute time = {layer_time:.2f} ms")
+
     def sync(self):
+        start = time.time()
+
         self.env.disk.synchronize()
         torch.cuda.synchronize()
+
+        end = time.time()
+        synch_time = (end - start)*1000
+        # self.total_synch_time = self.total_synch_time + synch_time
+        # print(f"Global synchronization time: {synch_time:.2f} ms")
+        # print(f"Total synchronization time: {self.total_synch_time:.2f} ms")
+
 
     def init_all_weights(self):
         self.weight_home = array_1d(self.num_layers, ValueHolder)
@@ -912,23 +945,6 @@ class OptLM:
 
         return self.output_ids
 
-    def generation_loop_normal(self):
-        print("generation loop normal")
-        for i in range(self.execute_gen_len):
-            timers("generate").start()
-            for k in range(self.num_gpu_batches):
-                self.update_attention_mask(i, k)
-            for j in range(self.num_layers):
-                for k in range(self.num_gpu_batches):
-                    self.load_weight(i, j, k, overlap=False)
-
-                for k in range(self.num_gpu_batches):
-                    self.load_cache(i, j, k, overlap=False)
-                    self.load_hidden(i, j, k)
-                    self.compute_layer(i, j, k)
-                    self.store_hidden(i, j, k)
-                    self.store_cache(i, j, k, overlap=False)
-            timers("generate").stop()
 
     def generation_loop_debug_normal(self):
         execute_num_batches = 20
@@ -1012,6 +1028,31 @@ class OptLM:
                 costs = timers(name).costs
                 print(f"{name:22s} (per-batch): {np.mean(costs):.6f} s")
 
+
+    def generation_loop_normal(self):
+        print("generation loop normal execute_gen_len= ", self.execute_gen_len)
+        for i in range(self.execute_gen_len):
+            timers("generate").start()
+            for k in range(self.num_gpu_batches):
+                self.update_attention_mask(i, k)
+
+            for j in range(self.num_layers):
+                for k in range(self.num_gpu_batches):
+                    # timers("non_overlap_load_weight").start()
+                    self.load_weight(i, j, k, overlap=False)
+                    # timers("non_overlap_load_weight").stop()
+                    # load_weight_time_us = timers("non_overlap_load_weight").costs[-1] * 1_000_000
+                    # print(f"Layer {j} load_weight time: {load_weight_time_us:.2f} µs")
+
+                for k in range(self.num_gpu_batches):
+                    self.load_cache(i, j, k, overlap=False)
+                    self.load_hidden(i, j, k)
+                    self.compute_layer(i, j, k)
+                    self.store_hidden(i, j, k)
+                    self.store_cache(i, j, k, overlap=False)
+            timers("generate").stop()
+
+
     def generation_loop_overlap_single_batch(self):
         print("generation_loop_overlap_single_batch execute_gen_len= ", self.execute_gen_len)
         timers("prefill_total").reset()
@@ -1020,38 +1061,28 @@ class OptLM:
             self.load_weight(0, 0, k)
         self.sync()
 
-        # 모든 레이어 가중치를 미리 로드
-        if self.execute_gen_len > 1:
-            for i in range(self.execute_gen_len):
-                print("*i = ", i, " execute_gen_len = ", self.execute_gen_len, " num_layers = ", self.num_layers)
-                for j in range(self.num_layers):
-                    print("*j = ", j)
-                    self.load_weight(i, j + 1, 0)
-                    if self.weight_read_buf[j].val is None:
-                        raise ValueError(f"Weight for layer {j} has not been loaded properly.")
-                    print(f"Weight loaded for layer {j}: {self.weight_read_buf[j].val}")
-                    self.sync()  # 동기화
-        else:
-            print("**i = ", 0, " execute_gen_len = ", self.execute_gen_len, " num_layers = ", self.num_layers)
-            for j in range(self.num_layers):
-                print("*j = ", j)
-                self.load_weight(0, j+1, 0)
-                self.sync()
 
         # Generate
         for i in range(self.execute_gen_len):
-            print("i = ", i, " execute_gen_len = ", self.execute_gen_len, " num_layers = ", self.num_layers)
+            # print("i = ", i, " execute_gen_len = ", self.execute_gen_len, " num_layers = ", self.num_layers)
             timers("generate").start()
             self.update_attention_mask(i, 0)
+
             for j in range(self.num_layers):
-                print(" j = " , j)
-                # self.load_weight(i, j+1, 0)
+                # print(" j = " , j)
+                # timers("overlap_load_weight").start()
+                self.load_weight(i, j+1, 0)
+                # timers("overlap_load_weight").stop()
+                # load_weight_time_us = timers("overlap_load_weight").costs[-1] * 1_000_000
+                # print(f"Layer {j} load_weight time: {load_weight_time_us:.2f} µs")
+
                 self.load_cache(i, j+1, 0)
                 self.load_hidden(i, j, 0)
                 self.compute_layer(i, j, 0)
                 self.store_cache(i, j-1, 0)
                 self.store_hidden(i, j, 0)
                 self.sync()
+
             timers("generate").stop()
 
             if self.task.stop and np.all(self.stopped):
@@ -1282,8 +1313,8 @@ def run_flexllmgen(args):
     opt_config = get_opt_config(args.model)
 
     # 어텐션 캐시를 GPU에 100% 저장
-    cache_gpu_percent = 100
-    cache_cpu_percent = 0
+    # cache_gpu_percent = 100
+    # cache_cpu_percent = 0
 
     # 가중치 데이터 크기
     model_weight_size = opt_config.model_bytes()
@@ -1295,15 +1326,20 @@ def run_flexllmgen(args):
           f"hidden size (prefill): {hidden_size/GB:.3f} GB")
 
     # 가중치에 대한 GPU/CPU 비율 계산
-    w_gpu_percent, w_cpu_percent = calculate_weight_allocation_policy(free_memory, model_weight_size + cache_size + hidden_size)
+    # w_gpu_percent, w_cpu_percent = calculate_weight_allocation_policy(free_memory, model_weight_size + cache_size + hidden_size)
     # print(f"Setting weight GPU percent to {w_gpu_percent}%")
     # print(f"Setting weight CPU percent to {w_cpu_percent}%")
+    print(f"Setting weight GPU percent to {args.percent[0]}%")
+    print(f"Setting weight CPU percent to {args.percent[1]}%")
+
     ###############
     policy = Policy(
         gpu_batch_size=args.gpu_batch_size,
         num_gpu_batches=args.num_gpu_batches,
-        w_gpu_percent=100,
-        w_cpu_percent=0,
+        # w_gpu_percent=100,
+        # w_cpu_percent=0,
+        w_gpu_percent=args.percent[0],
+        w_cpu_percent=args.percent[1],
         # w_gpu_percent=w_gpu_percent,
         # w_cpu_percent=w_cpu_percent,
         # cache_gpu_percent=w_gpu_percent,
@@ -1430,10 +1466,7 @@ def add_parser_arguments(parser):
 
     parser.add_argument("--overlap", type=str2bool, nargs='?',
         const=True, default=True)
-
-
-
-
+        # const = True, default = False)
 
 
 
