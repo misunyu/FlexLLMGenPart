@@ -651,11 +651,14 @@ class OptLM:
         self.layers[j].init_weight(self.weight_home[j], expanded_path)
 
     def load_weight(self, i, j, k, overlap=True):
+        print("load weight overlap = ", overlap)
         # Handle corner cases
         if j == self.num_layers:
+            print("j == self.num_layers")
             j = 0
             i += 1
             if i == self.execute_gen_len:
+                print("i == self.execute_gen_len")
                 return
 
         # Load from weight_home to weight_read_buf
@@ -910,6 +913,7 @@ class OptLM:
         return self.output_ids
 
     def generation_loop_normal(self):
+        print("generation loop normal")
         for i in range(self.execute_gen_len):
             timers("generate").start()
             for k in range(self.num_gpu_batches):
@@ -1009,17 +1013,39 @@ class OptLM:
                 print(f"{name:22s} (per-batch): {np.mean(costs):.6f} s")
 
     def generation_loop_overlap_single_batch(self):
+        print("generation_loop_overlap_single_batch execute_gen_len= ", self.execute_gen_len)
+        timers("prefill_total").reset()
         # Prologue
         for k in range(self.num_gpu_batches):
             self.load_weight(0, 0, k)
         self.sync()
 
+        # 모든 레이어 가중치를 미리 로드
+        if self.execute_gen_len > 1:
+            for i in range(self.execute_gen_len):
+                print("*i = ", i, " execute_gen_len = ", self.execute_gen_len, " num_layers = ", self.num_layers)
+                for j in range(self.num_layers):
+                    print("*j = ", j)
+                    self.load_weight(i, j + 1, 0)
+                    if self.weight_read_buf[j].val is None:
+                        raise ValueError(f"Weight for layer {j} has not been loaded properly.")
+                    print(f"Weight loaded for layer {j}: {self.weight_read_buf[j].val}")
+                    self.sync()  # 동기화
+        else:
+            print("**i = ", 0, " execute_gen_len = ", self.execute_gen_len, " num_layers = ", self.num_layers)
+            for j in range(self.num_layers):
+                print("*j = ", j)
+                self.load_weight(0, j+1, 0)
+                self.sync()
+
         # Generate
         for i in range(self.execute_gen_len):
+            print("i = ", i, " execute_gen_len = ", self.execute_gen_len, " num_layers = ", self.num_layers)
             timers("generate").start()
             self.update_attention_mask(i, 0)
             for j in range(self.num_layers):
-                self.load_weight(i, j+1, 0)
+                print(" j = " , j)
+                # self.load_weight(i, j+1, 0)
                 self.load_cache(i, j+1, 0)
                 self.load_hidden(i, j, 0)
                 self.compute_layer(i, j, 0)
@@ -1270,14 +1296,16 @@ def run_flexllmgen(args):
 
     # 가중치에 대한 GPU/CPU 비율 계산
     w_gpu_percent, w_cpu_percent = calculate_weight_allocation_policy(free_memory, model_weight_size + cache_size + hidden_size)
-    print(f"Setting weight GPU percent to {w_gpu_percent}%")
-    print(f"Setting weight CPU percent to {w_cpu_percent}%")
+    # print(f"Setting weight GPU percent to {w_gpu_percent}%")
+    # print(f"Setting weight CPU percent to {w_cpu_percent}%")
     ###############
     policy = Policy(
         gpu_batch_size=args.gpu_batch_size,
         num_gpu_batches=args.num_gpu_batches,
-        w_gpu_percent=w_gpu_percent,
-        w_cpu_percent=w_cpu_percent,
+        w_gpu_percent=100,
+        w_cpu_percent=0,
+        # w_gpu_percent=w_gpu_percent,
+        # w_cpu_percent=w_cpu_percent,
         # cache_gpu_percent=w_gpu_percent,
         # cache_cpu_percent=w_cpu_percent,
         cache_gpu_percent=100,
