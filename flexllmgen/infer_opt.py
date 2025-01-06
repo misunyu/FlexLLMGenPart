@@ -66,6 +66,10 @@ class Policy:
     compress_cache: bool
     comp_cache_config: CompressionConfig
 
+
+    gpu_weight_alloc_size: int
+    cpu_weight_alloc_size: int
+
     @property
     def w_disk_percent(self):
         return 100 - self.w_gpu_percent - self.w_cpu_percent
@@ -97,10 +101,18 @@ def init_weight_list(weight_specs, policy, env):
     sizes_cumsum = np.cumsum(sizes)
 
     ret = []
+    # print("sizes = ", sizes)
     for i in range(len(weight_specs)):
         mid_percent = (sizes_cumsum[i] - sizes[i] / 2) / sizes_cumsum[-1]
         home = get_choice(mid_percent * 100, dev_percents, dev_choices)
+        # if(i == 0):
+        #     home = dev_choices[1]
+        # else:
+        #     home = dev_choices[2]
+
         shape, dtype, filename = weight_specs[i]
+
+        # print("init_weight_list i = ", i, "home = ", home)
 
         if len(shape) < 2:
             pin_memory = True
@@ -136,6 +148,81 @@ def init_weight_list(weight_specs, policy, env):
         #     print(f"Weight {i}: name = {filename}, Shape = {shape}, Size = {size / (1024 ** 2):.2f} MB")
 
     return ret
+#
+# cur_accu_cpu_weight_size = 0
+# def get_choice(cur_size, cpu_size, choices):
+#     global cur_accu_cpu_weight_size
+#
+#     # percents = np.cumsum(percents)
+#     # assert np.abs(percents[-1] - 100) < 1e-5
+#     cur_accu_cpu_weight_size = cur_accu_cpu_weight_size + cur_size
+#
+#     # for i in range(len(choices)):
+#     if cur_accu_cpu_weight_size < cpu_size:
+#         return choices[1] #cpu
+#     return choices[2] #gpu
+#
+#
+# def init_weight_list(weight_specs, policy, env):
+#     # cur_accu_weight_size = cur_accu_weight_size + 10
+#     # print("cur_accu_weight_size = ", cur_accu_weight_size)
+#
+#     # dev_percents = [policy.w_disk_percent, policy.w_cpu_percent, policy.w_gpu_percent]
+#     dev_choices = [env.disk, env.cpu, env.gpu]
+#
+#     sizes = [np.prod(spec[0]) for spec in weight_specs]
+#     sizes_cumsum = np.cumsum(sizes)
+#
+#     ret = []
+#     # print("sizes = ", sizes)
+#     for i in range(len(weight_specs)):
+#         # mid_percent = (sizes_cumsum[i] - sizes[i] / 2) / sizes_cumsum[-1]
+#         # home = get_choice(mid_percent * 100, dev_percents, dev_choices)
+#         home = get_choice(sizes_cumsum[i], policy.cpu_weight_alloc_size, dev_choices)
+#
+#         # if(i == 0):
+#         #     home = dev_choices[1]
+#         # else:
+#         #     home = dev_choices[2]
+#
+#         shape, dtype, filename = weight_specs[i]
+#
+#         # print("init_weight_list i = ", i, "home = ", home)
+#
+#         if len(shape) < 2:
+#             pin_memory = True
+#             compress = False
+#         else:
+#             pin_memory = policy.pin_weight
+#             compress = policy.compress_weight
+#
+#         if not compress:
+#             weight = home.allocate(shape, dtype, pin_memory=pin_memory)
+#
+#             if DUMMY_WEIGHT not in filename:
+#                 weight.load_from_np_file(weight_specs[i][2])
+#             else:
+#                 weight.load_from_np(np.ones(shape, dtype))
+#                 #weight.load_from_np(np.random.rand(*shape).astype(dtype))
+#         else:
+#             weight = home.compressed_device.allocate(
+#                 shape, dtype, policy.comp_weight_config, pin_memory=pin_memory)
+#
+#             if DUMMY_WEIGHT not in filename:
+#                 weight.load_from_np_file(weight_specs[i][2])
+#             else:
+#                 for i in range(2):
+#                     x = weight.data[i]
+#                     x.load_from_np(np.ones(x.shape, torch_dtype_to_np_dtype[x.dtype]))
+#
+#         ret.append(weight)
+#
+#         # for i in range(len(weight_specs)):
+#         #     shape, dtype, filename = weight_specs[i]
+#         #     size = np.prod(shape) * np.dtype(dtype).itemsize  # 바이트 단위 크기 계산
+#         #     print(f"Weight {i}: name = {filename}, Shape = {shape}, Size = {size / (1024 ** 2):.2f} MB")
+#
+#     return ret
 
 
 class InputEmbed:
@@ -679,6 +766,7 @@ class OptLM:
         else:
             self.layers[j].load_weight(self.weight_home[j], self.weight_read_buf[j], k)
 
+
         # end_time = time.time()
         # elapsed_time_us = (end_time - start_time) * 1_000_000
         # print(f"Load weight time for Layer {j}, Batch {k}: {elapsed_time_us:.2f} µs")
@@ -915,15 +1003,18 @@ class OptLM:
 
         # Generate
         if debug_mode is None:
-            if not overlap:
-                # No overlap, easy to understand, suitable for debugging
-                self.generation_loop_normal()
-            else:
-                # Overlap I/O and compute
-                if num_gpu_batches == 1:
-                    self.generation_loop_overlap_single_batch()
-                else:
-                    self.generation_loop_overlap_multi_batch()
+            if num_gpu_batches == 1:
+                self.generation_loop_hybrid_overlap_single_batch()
+
+            # if not overlap:
+            #     # No overlap, easy to understand, suitable for debugging
+            #     self.generation_loop_normal()
+            # else:
+            #     # Overlap I/O and compute
+            #     if num_gpu_batches == 1:
+            #         self.generation_loop_overlap_single_batch()
+            #     else:
+            #         self.generation_loop_overlap_multi_batch()
         elif debug_mode == "fewer_batch":
             # Run fewer layeres and batches for debugging
             if num_gpu_batches == 1:
@@ -1031,7 +1122,9 @@ class OptLM:
 
     def generation_loop_normal(self):
         print("generation loop normal execute_gen_len= ", self.execute_gen_len)
+
         for i in range(self.execute_gen_len):
+
             timers("generate").start()
             for k in range(self.num_gpu_batches):
                 self.update_attention_mask(i, k)
@@ -1051,6 +1144,62 @@ class OptLM:
                     self.store_hidden(i, j, k)
                     self.store_cache(i, j, k, overlap=False)
             timers("generate").stop()
+
+    def generation_loop_hybrid_overlap_single_batch(self):
+
+        print("generation_loop_hybrid_overlap_single_batch execute_gen_len= ", self.execute_gen_len, " num_gpu_batches= ", self.num_gpu_batches)
+
+        # for k in range(self.num_gpu_batches):
+        #     self.load_weight(0, 0, k)
+        # self.sync()
+
+        for i in range(self.execute_gen_len):
+
+            timers("generate").start()
+            for k in range(self.num_gpu_batches):
+                self.update_attention_mask(i, k)
+
+            for j in range(self.num_layers):
+                print("--> j= ", j)
+                if j < self.num_layers - 2:
+                    for k in range(self.num_gpu_batches):
+                        self.load_weight(i, j, k, overlap=False)
+                        self.load_cache(i, j, k, overlap=False)
+                        self.load_hidden(i, j, k)
+                        self.compute_layer(i, j, k)
+                        self.store_hidden(i, j, k)
+                        self.store_cache(i, j, k, overlap=False)
+                        # self.sync()
+                elif j == self.num_layers - 2:
+                    # print("last last layer---")
+                    for k in range(self.num_gpu_batches):
+                        self.load_weight(i, j, k, overlap=False)
+                        self.load_cache(i, j, k, overlap=False)
+                        self.load_hidden(i, j, k)
+                        self.compute_layer(i, j, k)
+                        self.store_hidden(i, j, k)
+
+                        self.store_cache(i, j, k, overlap=True)
+                        self.load_weight(i, j+1, k, overlap=True)
+                        self.load_cache(i, j+1, k, overlap=True)
+                        self.sync()
+                else:
+                    # exit(0)
+                    # print("last layer---")
+                    for k in range(self.num_gpu_batches):
+                        # self.load_weight(i, 0, k, overlap=False)
+                        # self.load_weight(i, j, k, overlap=False)
+                        # self.load_cache(i, j, k, overlap=False)
+                        self.load_hidden(i, j, k)
+                        self.compute_layer(i, j, k)
+                        self.store_hidden(i, j, k)
+
+                        self.sync()
+
+            timers("generate").stop()
+
+            if self.task.stop and np.all(self.stopped):
+                break
 
 
     def generation_loop_overlap_single_batch(self):
@@ -1114,6 +1263,7 @@ class OptLM:
         # Epilogue
         self.store_hidden(
             self.execute_gen_len-1, self.num_layers-1, self.num_gpu_batches-1)
+
 
     def generation_loop_debug_single_batch(self):
         execute_num_batches = 20
@@ -1361,9 +1511,14 @@ def run_flexllmgen(args):
         comp_cache_config=CompressionConfig(
             num_bits=4, group_size=64, group_dim=2, symmetric=False
         ),
+        gpu_weight_alloc_size=model_weight_size*(args.percent[0]/100),
+        cpu_weight_alloc_size=model_weight_size*(args.percent[1]/100),
     )
 
     assert not (args.compress_cache and args.attn_sparsity < 1.0), "Not implemented"
+
+    print(f"--> GPU weight alloc: {policy.gpu_weight_alloc_size}%")
+    print(f"--> CPU weight alloc: {policy.cpu_weight_alloc_size}%")
 
     print("init weight...")
     model = OptLM(opt_config, env, args.path, policy)
