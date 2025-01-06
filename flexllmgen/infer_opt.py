@@ -93,13 +93,18 @@ def get_choice(cur_percent, percents, choices):
     return choices[-1]
 
 
+layer_cpu_alloc = []
 def init_weight_list(weight_specs, policy, env):
+
+    global layer_cpu_alloc
+
     dev_percents = [policy.w_disk_percent, policy.w_cpu_percent, policy.w_gpu_percent]
     dev_choices = [env.disk, env.cpu, env.gpu]
 
     sizes = [np.prod(spec[0]) for spec in weight_specs]
     sizes_cumsum = np.cumsum(sizes)
 
+    is_cpu = False
     ret = []
     # print("sizes = ", sizes)
     for i in range(len(weight_specs)):
@@ -111,8 +116,9 @@ def init_weight_list(weight_specs, policy, env):
         #     home = dev_choices[2]
 
         shape, dtype, filename = weight_specs[i]
-
         # print("init_weight_list i = ", i, "home = ", home)
+        if home.name == 'cpu':
+            is_cpu = True
 
         if len(shape) < 2:
             pin_memory = True
@@ -142,6 +148,10 @@ def init_weight_list(weight_specs, policy, env):
 
         ret.append(weight)
 
+    if is_cpu == True:
+        layer_cpu_alloc.append(is_cpu)
+    else:
+        layer_cpu_alloc.append(False)
         # for i in range(len(weight_specs)):
         #     shape, dtype, filename = weight_specs[i]
         #     size = np.prod(shape) * np.dtype(dtype).itemsize  # 바이트 단위 크기 계산
@@ -1147,11 +1157,11 @@ class OptLM:
 
     def generation_loop_hybrid_overlap_single_batch(self):
 
+        global layer_cpu_alloc
         print("generation_loop_hybrid_overlap_single_batch execute_gen_len= ", self.execute_gen_len, " num_gpu_batches= ", self.num_gpu_batches)
 
         # for k in range(self.num_gpu_batches):
-        #     self.load_weight(0, 0, k)
-        # self.sync()
+        #     self.load_weight(0, 0, 0, False)
 
         for i in range(self.execute_gen_len):
 
@@ -1159,42 +1169,47 @@ class OptLM:
             for k in range(self.num_gpu_batches):
                 self.update_attention_mask(i, k)
 
+            prev = 0
             for j in range(self.num_layers):
-                print("--> j= ", j)
-                if j < self.num_layers - 2:
-                    for k in range(self.num_gpu_batches):
-                        self.load_weight(i, j, k, overlap=False)
-                        self.load_cache(i, j, k, overlap=False)
-                        self.load_hidden(i, j, k)
-                        self.compute_layer(i, j, k)
-                        self.store_hidden(i, j, k)
-                        self.store_cache(i, j, k, overlap=False)
-                        # self.sync()
-                elif j == self.num_layers - 2:
-                    # print("last last layer---")
-                    for k in range(self.num_gpu_batches):
-                        self.load_weight(i, j, k, overlap=False)
-                        self.load_cache(i, j, k, overlap=False)
-                        self.load_hidden(i, j, k)
-                        self.compute_layer(i, j, k)
-                        self.store_hidden(i, j, k)
+                # print("--> j= ", j)
+                # print(f"layer alloc {j}: {layer_cpu_alloc[j]}")
+                # print(f"layer alloc {(j+1)%self.num_layers}: {layer_cpu_alloc[(j+1)%self.num_layers]}")
 
-                        self.store_cache(i, j, k, overlap=True)
-                        self.load_weight(i, j+1, k, overlap=True)
-                        self.load_cache(i, j+1, k, overlap=True)
-                        self.sync()
-                else:
-                    # exit(0)
-                    # print("last layer---")
-                    for k in range(self.num_gpu_batches):
-                        # self.load_weight(i, 0, k, overlap=False)
-                        # self.load_weight(i, j, k, overlap=False)
-                        # self.load_cache(i, j, k, overlap=False)
-                        self.load_hidden(i, j, k)
-                        self.compute_layer(i, j, k)
-                        self.store_hidden(i, j, k)
+                if layer_cpu_alloc[(j+1)%self.num_layers]:  #current == gpu, next == cpu ==> overlap, current == cpu, next == cpu ==> overlap
+                    # print("A")
+                    self.load_weight(i, j+1, 0, overlap=True)
+                    self.load_cache(i, j+1, 0, overlap=True)
 
-                        self.sync()
+                    self.load_weight(i, j, 0, overlap=True)
+                    self.load_hidden(i, j, 0)
+                    self.compute_layer(i, j, 0)
+
+                    if prev == 2:
+                        self.store_cache(i, j, 0, overlap=True)
+                    elif prev == 1:
+                        self.store_cache(i, j-1, 0, overlap=True)
+
+                    self.store_hidden(i, j, 0)
+
+                    self.sync()
+                    prev = 0
+
+                elif layer_cpu_alloc[j] and not layer_cpu_alloc[(j+1)%self.num_layers]: #current == cpu and next == gpu ==> no overlap
+                    # print("B")
+                    self.load_hidden(i, j, 0)
+                    self.compute_layer(i, j, 0)
+                    self.store_hidden(i, j, 0)
+                    prev = 1
+
+                else: #current == gpu and next == gpu ==> no overlap
+                    # print("C")
+                    self.load_weight(i, j, 0, overlap=False)
+                    self.load_cache(i, j, 0, overlap=False)
+                    self.load_hidden(i, j, 0)
+                    self.compute_layer(i, j, 0)
+                    self.store_hidden(i, j, 0)
+                    self.store_cache(i, j, 0, overlap=False)
+                    prev = 2
 
             timers("generate").stop()
 
