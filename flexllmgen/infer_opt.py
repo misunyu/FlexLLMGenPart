@@ -1169,7 +1169,7 @@ class OptLM:
             for k in range(self.num_gpu_batches):
                 self.update_attention_mask(i, k)
 
-            prev = 0
+            prev = -1
             for j in range(self.num_layers):
                 # print("--> j= ", j)
                 # print(f"layer alloc {j}: {layer_cpu_alloc[j]}")
@@ -1180,13 +1180,15 @@ class OptLM:
                     self.load_weight(i, j+1, 0, overlap=True)
                     self.load_cache(i, j+1, 0, overlap=True)
 
-                    self.load_weight(i, j, 0, overlap=True)
+                    if prev != 0:
+                        self.load_weight(i, j, 0, overlap=True)
+
                     self.load_hidden(i, j, 0)
                     self.compute_layer(i, j, 0)
 
                     if prev == 2:
                         self.store_cache(i, j, 0, overlap=True)
-                    elif prev == 1:
+                    elif prev != 2:
                         self.store_cache(i, j-1, 0, overlap=True)
 
                     self.store_hidden(i, j, 0)
