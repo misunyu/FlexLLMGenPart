@@ -1603,8 +1603,8 @@ def run_flexllmgen(args):
 
     assert not (args.compress_cache and args.attn_sparsity < 1.0), "Not implemented"
 
-    print(f"--> GPU weight alloc: {policy.gpu_weight_alloc_size}%")
-    print(f"--> CPU weight alloc: {policy.cpu_weight_alloc_size}%")
+    # print(f"--> GPU weight alloc: {policy.gpu_weight_alloc_size}%")
+    # print(f"--> CPU weight alloc: {policy.cpu_weight_alloc_size}%")
 
     print("init weight...")
     model = OptLM(opt_config, env, args.path, policy)
