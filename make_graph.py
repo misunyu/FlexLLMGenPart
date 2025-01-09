@@ -3,6 +3,8 @@ import re
 
 # 읽을 파일 경로
 file_path = "output/opt-1.3b_results.txt"
+#file_path = "output/opt-2.7b_results.txt"
+pdf_output_path = "output/opt-1.3b_results.pdf"
 
 # 데이터 저장 리스트
 x_labels = []  # X축 레이블 (percent pair)
@@ -44,6 +46,10 @@ try:
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.legend(fontsize=12)
     plt.tight_layout()
+
+    # 그래프를 PDF 파일로 저장
+    plt.savefig(pdf_output_path, format="pdf")
+    print(f"Graph has been saved to PDF successfully at: {pdf_output_path}")
 
     # 그래프 출력
     plt.show()
