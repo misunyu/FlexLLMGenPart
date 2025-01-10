@@ -47,7 +47,7 @@ for MODEL in "${MODELS[@]}"; do
         echo -e "\n  Testing with percent pair: $PAIR"
 
         # 실행할 명령어 조합
-        CMD="$BASE_CMD --model facebook/$MODEL --percent $PAIR 100 0 100 0"
+        CMD="$BASE_CMD --model facebook/$MODEL --percent $PAIR 100 0 100 0 --overlap True"
         
         # 합계 및 횟수 초기화
         total_latency_sum=0

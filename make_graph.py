@@ -2,9 +2,9 @@ import matplotlib.pyplot as plt
 import re
 
 # 읽을 파일 경로
-file_path = "output/opt-1.3b_results.txt"
-#file_path = "output/opt-2.7b_results.txt"
-pdf_output_path = "output/opt-1.3b_results.pdf"
+test_name = "opt-1.3b_infer"
+file_path = "output/" + test_name + "_results.txt"
+pdf_output_path = "output/" + test_name + "_results.pdf"
 
 # 데이터 저장 리스트
 x_labels = []  # X축 레이블 (percent pair)
@@ -38,7 +38,7 @@ try:
     plt.plot(x_labels, y_values, marker='o', linestyle='-', color='b', label='Average Latency')
 
     # 그래프 제목 및 레이블
-    plt.title("Average Total Latency for opt-1.3b", fontsize=14)
+    plt.title("Average Total Latency for " + test_name, fontsize=14)
     plt.xlabel("Percent Pair", fontsize=12)
     plt.ylabel("Average Latency (s)", fontsize=12)
     plt.xticks(rotation=45, fontsize=10)
