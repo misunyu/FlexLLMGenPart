@@ -1164,13 +1164,13 @@ class OptLM:
             self.num_gpu_batches,
         )
 
+        prev = -1
         for i in range(self.execute_gen_len):
             timers("generate").start()
 
             # 각 GPU 배치를 순회하며 attention mask 업데이트
             self.update_attention_mask(i, 0)
 
-            prev = -1
             num_layers = self.num_layers  # 레이어 개수를 캐시처리
 
             for j in range(num_layers):
@@ -1197,7 +1197,7 @@ class OptLM:
                     if prev == 2:  # 이전에 GPU 캐시를 저장한 경우
                         self.store_cache(i, j, 0, overlap=True)
                     else:  # CPU 캐시를 저장하는 경우
-                        self.store_cache(i, j - 1, 0, overlap=False)
+                        self.store_cache(i, j - 1, 0, overlap=True)
                     self.sync()  # 동기화
 
                     prev = 0

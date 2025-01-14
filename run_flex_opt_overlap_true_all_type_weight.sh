@@ -2,17 +2,17 @@
 
 # 설정할 모델 리스트
 MODELS=(
-#  "opt-1.3b"
-#  "opt-2.7b"
-#  "opt-6.7b"
-  "opt-13b"
+  "opt-1.3b"
+  "opt-2.7b"
+  "opt-6.7b"
+#  "opt-13b"
 )
 
 # 설정할 숫자 쌍 리스트
 PERCENT_PAIRS=(
-#  "100 0"
-#  "90 10"
-#  "80 20"
+  "100 0"
+  "90 10"
+  "80 20"
   "70 30"
   "60 40"
   "50 50"
@@ -38,7 +38,7 @@ for MODEL in "${MODELS[@]}"; do
     echo -e "\nTesting with model: $MODEL"
 
     # 현재 모델 이름으로 결과 파일 설정
-    MODEL_OUTPUT_FILE="$OUTPUT_DIR/${MODEL}_results.txt"
+    MODEL_OUTPUT_FILE="$OUTPUT_DIR/${MODEL}_all_type_results.txt"
 
     # 모델별 결과 파일 초기화
     echo "Latency Test Results for Model: $MODEL (rounded to 2 decimal places):" > "$MODEL_OUTPUT_FILE"
@@ -48,7 +48,7 @@ for MODEL in "${MODELS[@]}"; do
         echo -e "\n  Testing with percent pair: $PAIR"
 
         # 실행할 명령어 조합
-        CMD="$BASE_CMD --model facebook/$MODEL --percent $PAIR 100 0 100 0 --overlap True"
+        CMD="$BASE_CMD --model facebook/$MODEL --percent $PAIR $PAIR 100 0 --overlap True"
         
         # 합계 및 횟수 초기화
         total_latency_sum=0
