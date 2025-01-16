@@ -5,7 +5,7 @@ MODELS=(
   "opt-1.3b"
   "opt-2.7b"
   "opt-6.7b"
-#  "opt-13b"
+  "opt-13b"
 )
 
 # 설정할 숫자 쌍 리스트
@@ -43,8 +43,23 @@ for MODEL in "${MODELS[@]}"; do
     # 모델별 결과 파일 초기화
     echo "Latency Test Results for Model: $MODEL (rounded to 2 decimal places):" > "$MODEL_OUTPUT_FILE"
 
+    # 특정 모델에 대해 PERCENT_PAIRS 필터링
+    if [[ "$MODEL" == "opt-13b" ]]; then
+        FILTERED_PAIRS=()
+        for PAIR in "${PERCENT_PAIRS[@]}"; do
+            if [[ "$PAIR" == "70 30" ]]; then
+                ADD_PAIRS=true
+            fi
+            if [[ "$ADD_PAIRS" == true ]]; then
+                FILTERED_PAIRS+=("$PAIR")
+            fi
+        done
+    else
+        FILTERED_PAIRS=("${PERCENT_PAIRS[@]}")
+    fi
+
     # 각 설정된 percent 쌍에 대해 테스트
-    for PAIR in "${PERCENT_PAIRS[@]}"; do
+    for PAIR in "${FILTERED_PAIRS[@]}"; do
         echo -e "\n  Testing with percent pair: $PAIR"
 
         # 실행할 명령어 조합
