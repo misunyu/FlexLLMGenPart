@@ -689,7 +689,7 @@ class OptLM:
                  env: ExecutionEnv,
                  path: str,
                  policy: Policy):
-        self.total_synch_time = 0.0
+        # self.total_synch_time = 0.0
         if isinstance(config, str):
             config = get_opt_config(config)
         self.config = config
@@ -916,13 +916,13 @@ class OptLM:
         # print(f"{i}th Token Layer {j}, Batch {k}: Compute time = {layer_time:.2f} ms")
 
     def sync(self):
-        start = time.time()
+        # start = time.time()
 
         self.env.disk.synchronize()
         torch.cuda.synchronize()
 
-        end = time.time()
-        synch_time = (end - start)*1000
+        # end = time.time()
+        # synch_time = (end - start)*1000
         # self.total_synch_time = self.total_synch_time + synch_time
         # print(f"Global synchronization time: {synch_time:.2f} ms")
         # print(f"Total synchronization time: {self.total_synch_time:.2f} ms")
@@ -1164,56 +1164,50 @@ class OptLM:
         #     self.num_gpu_batches,
         # )
 
+        # 캐시 처리
+        num_layers = self.num_layers
+        layer_alloc = layer_cpu_alloc
+        stop_check = self.task.stop
+
         prev = -1
         for i in range(self.execute_gen_len):
             timers("generate").start()
 
-            # 각 GPU 배치를 순회하며 attention mask 업데이트
+            # Attention mask 업데이트
             self.update_attention_mask(i, 0)
 
-            num_layers = self.num_layers  # 레이어 개수를 캐시처리
-
             for j in range(num_layers):
-                next_layer = (j + 1) % num_layers  # 다음 레이어 인덱스 미리 계산
-                current_alloc = layer_cpu_alloc[j]  # 현재 레이어 CPU/GPU 할당 상태
-                next_alloc = layer_cpu_alloc[next_layer]  # 다음 레이어 CPU/GPU 할당 상태
+                next_layer = (j + 1) % num_layers
+                current_alloc = layer_alloc[j]
+                next_alloc = layer_alloc[next_layer]
 
-                # print(f"j = {j}, next_layer = {next_layer}, current_alloc = {current_alloc}, next_alloc = {next_alloc}")
-
-                # 1. 현재 GPU, 다음 CPU 또는 둘 다 CPU인 경우 (오버랩 활성화)
-                if next_alloc:
-                    # print("============Type 1 ================")
+                # 현재와 다음 레이어의 상태를 기반으로 처리 분기
+                if next_alloc:  # Type 1: 다음 레이어가 CPU
                     self.load_weight(i, next_layer, 0, overlap=True)
                     self.load_cache(i, next_layer, 0, overlap=True)
 
-                    # 이전 레이어의 상태가 CPU가 아니었다면 가중치 재로드
-                    if prev != 0:
+                    if prev != 0:  # 이전 상태가 CPU가 아니면 가중치 로드
                         self.load_weight(i, j, 0, overlap=False)
 
                     self.load_hidden(i, j, 0)
                     self.compute_layer(i, j, 0)
                     self.store_hidden(i, j, 0)
 
-                    # 이전 캐시를 저장
                     if prev == 2:  # 이전에 GPU 캐시를 저장한 경우
                         self.store_cache(i, j, 0, overlap=True)
-                    else:  # CPU 캐시를 저장하는 경우
+                    else:  # 이전 캐시 저장
                         self.store_cache(i, j - 1, 0, overlap=True)
-                    self.sync()  # 동기화
 
+                    self.sync()  # 동기화
                     prev = 0
 
-                # 2. 현재 CPU, 다음 GPU인 경우 (오버랩 비활성화)
-                elif current_alloc and not next_alloc:
-                    # print("============Type 2 ================")
+                elif current_alloc and not next_alloc:  # Type 2: 현재 레이어가 CPU
                     self.load_hidden(i, j, 0)
                     self.compute_layer(i, j, 0)
                     self.store_hidden(i, j, 0)
                     prev = 1
 
-                # 3. 현재와 다음 모두 GPU인 경우 (오버랩 비활성화)
-                else:
-                    # print("============Type 3 ================")
+                else:  # Type 3: 현재와 다음 모두 GPU
                     self.load_weight(i, j, 0, overlap=False)
                     self.load_cache(i, j, 0, overlap=False)
                     self.load_hidden(i, j, 0)
@@ -1221,6 +1215,63 @@ class OptLM:
                     self.store_hidden(i, j, 0)
                     self.store_cache(i, j, 0, overlap=False)
                     prev = 2
+        # prev = -1
+        # for i in range(self.execute_gen_len):
+        #     timers("generate").start()
+        #
+        #     # 각 GPU 배치를 순회하며 attention mask 업데이트
+        #     self.update_attention_mask(i, 0)
+        #
+        #     num_layers = self.num_layers  # 레이어 개수를 캐시처리
+        #
+        #     for j in range(num_layers):
+        #         next_layer = (j + 1) % num_layers  # 다음 레이어 인덱스 미리 계산
+        #         current_alloc = layer_cpu_alloc[j]  # 현재 레이어 CPU/GPU 할당 상태
+        #         next_alloc = layer_cpu_alloc[next_layer]  # 다음 레이어 CPU/GPU 할당 상태
+        #
+        #         # print(f"j = {j}, next_layer = {next_layer}, current_alloc = {current_alloc}, next_alloc = {next_alloc}")
+        #
+        #         # 1. (현재 GPU, 다음 CPU) 또는 둘 다 CPU인 경우 -> 오버랩 활성화
+        #         if next_alloc:
+        #             # print("============Type 1 ================")
+        #             self.load_weight(i, next_layer, 0, overlap=True)
+        #             self.load_cache(i, next_layer, 0, overlap=True)
+        #
+        #             # 이전 레이어의 상태가 CPU가 아니었다면 가중치 재로드
+        #             if prev != 0:
+        #                 self.load_weight(i, j, 0, overlap=False)
+        #
+        #             self.load_hidden(i, j, 0)
+        #             self.compute_layer(i, j, 0)
+        #             self.store_hidden(i, j, 0)
+        #
+        #             # 이전 캐시를 저장
+        #             if prev == 2:  # 이전에 GPU 캐시를 저장한 경우
+        #                 self.store_cache(i, j, 0, overlap=True)
+        #             else:  # CPU 캐시를 저장하는 경우
+        #                 self.store_cache(i, j - 1, 0, overlap=True)
+        #             self.sync()  # 동기화
+        #
+        #             prev = 0
+        #
+        #         # 2. 현재 CPU, 다음 GPU인 경우 (오버랩 비활성화)
+        #         elif current_alloc and not next_alloc:
+        #             # print("============Type 2 ================")
+        #             self.load_hidden(i, j, 0)
+        #             self.compute_layer(i, j, 0)
+        #             self.store_hidden(i, j, 0)
+        #             prev = 1
+        #
+        #         # 3. 현재와 다음 모두 GPU인 경우 (오버랩 비활성화)
+        #         else:
+        #             # print("============Type 3 ================")
+        #             self.load_weight(i, j, 0, overlap=False)
+        #             self.load_cache(i, j, 0, overlap=False)
+        #             self.load_hidden(i, j, 0)
+        #             self.compute_layer(i, j, 0)
+        #             self.store_hidden(i, j, 0)
+        #             self.store_cache(i, j, 0, overlap=False)
+        #             prev = 2
 
             timers("generate").stop()
 
@@ -1520,10 +1571,10 @@ def run_flexllmgen(args):
         # w_cpu_percent=w_cpu_percent,
         # cache_gpu_percent=w_gpu_percent,
         # cache_cpu_percent=w_cpu_percent,
-        cache_gpu_percent=100,
-        cache_cpu_percent=0,
-        act_gpu_percent=100,  # 활성화 데이터도 GPU에 저장
-        act_cpu_percent=0,
+        cache_gpu_percent=args.percent[2],
+        cache_cpu_percent=args.percent[3],
+        act_gpu_percent=args.percent[4],  # 활성화 데이터도 GPU에 저장
+        act_cpu_percent=args.percent[5],
         overlap=args.overlap,
         sep_layer=args.sep_layer,
         pin_weight=args.pin_weight,
