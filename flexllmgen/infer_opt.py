@@ -1570,10 +1570,10 @@ def run_flexllmgen(args):
         # w_cpu_percent=w_cpu_percent,
         # cache_gpu_percent=w_gpu_percent,
         # cache_cpu_percent=w_cpu_percent,
-        cache_gpu_percent=100,
-        cache_cpu_percent=0,
-        act_gpu_percent=100,  # 활성화 데이터도 GPU에 저장
-        act_cpu_percent=0,
+        cache_gpu_percent=args.percent[2],
+        cache_cpu_percent=args.percent[3],
+        act_gpu_percent=args.percent[4],  # 활성화 데이터도 GPU에 저장
+        act_cpu_percent=args.percent[5],
         overlap=args.overlap,
         sep_layer=args.sep_layer,
         pin_weight=args.pin_weight,
