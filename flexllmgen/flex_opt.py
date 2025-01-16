@@ -1009,6 +1009,7 @@ class OptLM:
                 print(f"{name:22s} (per-batch): {np.mean(costs):.6f} s")
 
     def generation_loop_overlap_single_batch(self):
+        # print("generation_loop_overlap_single_batch")
         # Prologue
         for k in range(self.num_gpu_batches):
             self.load_weight(0, 0, k)

@@ -1157,12 +1157,12 @@ class OptLM:
 
     def generation_loop_hybrid_overlap_single_batch(self):
         global layer_cpu_alloc
-        print(
-            "generation_loop_hybrid_overlap_single_batch 실행 중 execute_gen_len= ",
-            self.execute_gen_len,
-            " num_gpu_batches= ",
-            self.num_gpu_batches,
-        )
+        # print(
+        #     "generation_loop_hybrid_overlap_single_batch 실행 중 execute_gen_len= ",
+        #     self.execute_gen_len,
+        #     " num_gpu_batches= ",
+        #     self.num_gpu_batches,
+        # )
 
         prev = -1
         for i in range(self.execute_gen_len):
@@ -1182,12 +1182,13 @@ class OptLM:
 
                 # 1. 현재 GPU, 다음 CPU 또는 둘 다 CPU인 경우 (오버랩 활성화)
                 if next_alloc:
+                    # print("============Type 1 ================")
                     self.load_weight(i, next_layer, 0, overlap=True)
                     self.load_cache(i, next_layer, 0, overlap=True)
 
-                    # 이전 레이어의 상태가 CPU가 아니었다면 무게 재로드
+                    # 이전 레이어의 상태가 CPU가 아니었다면 가중치 재로드
                     if prev != 0:
-                        self.load_weight(i, j, 0, overlap=True)
+                        self.load_weight(i, j, 0, overlap=False)
 
                     self.load_hidden(i, j, 0)
                     self.compute_layer(i, j, 0)
@@ -1204,6 +1205,7 @@ class OptLM:
 
                 # 2. 현재 CPU, 다음 GPU인 경우 (오버랩 비활성화)
                 elif current_alloc and not next_alloc:
+                    # print("============Type 2 ================")
                     self.load_hidden(i, j, 0)
                     self.compute_layer(i, j, 0)
                     self.store_hidden(i, j, 0)
@@ -1211,6 +1213,7 @@ class OptLM:
 
                 # 3. 현재와 다음 모두 GPU인 경우 (오버랩 비활성화)
                 else:
+                    # print("============Type 3 ================")
                     self.load_weight(i, j, 0, overlap=False)
                     self.load_cache(i, j, 0, overlap=False)
                     self.load_hidden(i, j, 0)
