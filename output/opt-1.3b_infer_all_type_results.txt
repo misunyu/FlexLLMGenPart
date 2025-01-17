@@ -1,12 +1,12 @@
 Latency Test Results for Model: opt-1.3b (rounded to 2 decimal places):
 python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 100 0 100 0 100 0 -> Average Total Latency after 10 runs: .15 s
-python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 90 10 90 10 100 0 -> Average Total Latency after 10 runs: .15 s
-python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 80 20 80 20 100 0 -> Average Total Latency after 10 runs: .45 s
-python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 70 30 70 30 100 0 -> Average Total Latency after 10 runs: 1.64 s
-python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 60 40 60 40 100 0 -> Average Total Latency after 10 runs: 1.96 s
-python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 50 50 50 50 100 0 -> Average Total Latency after 10 runs: 2.29 s
-python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 40 60 40 60 100 0 -> Average Total Latency after 10 runs: 2.61 s
-python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 30 70 30 70 100 0 -> Average Total Latency after 10 runs: 2.92 s
-python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 20 80 20 80 100 0 -> Average Total Latency after 10 runs: 4.20 s
-python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 10 90 10 90 100 0 -> Average Total Latency after 10 runs: 4.51 s
-python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 0 100 0 100 100 0 -> Average Total Latency after 10 runs: 4.53 s
+python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 90 10 90 10 100 0 -> Average Total Latency after 10 runs: .46 s
+python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 80 20 80 20 100 0 -> Average Total Latency after 10 runs: .73 s
+python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 70 30 70 30 100 0 -> Average Total Latency after 10 runs: 1.91 s
+python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 60 40 60 40 100 0 -> Average Total Latency after 10 runs: 2.22 s
+python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 50 50 50 50 100 0 -> Average Total Latency after 10 runs: 2.55 s
+python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 40 60 40 60 100 0 -> Average Total Latency after 10 runs: 2.88 s
+python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 30 70 30 70 100 0 -> Average Total Latency after 10 runs: 3.20 s
+python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 20 80 20 80 100 0 -> Average Total Latency after 10 runs: 4.47 s
+python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 10 90 10 90 100 0 -> Average Total Latency after 10 runs: 4.79 s
+python3 -m flexllmgen.infer_opt --model facebook/opt-1.3b --percent 0 100 0 100 100 0 -> Average Total Latency after 10 runs: 4.81 s

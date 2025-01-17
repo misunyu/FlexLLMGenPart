@@ -1,12 +1,12 @@
 Latency Test Results for Model: opt-6.7b (rounded to 2 decimal places):
-python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 100 0 100 0 100 0 --overlap True -> Average Total Latency after 10 runs: .63 s
+python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 100 0 100 0 100 0 --overlap True -> Average Total Latency after 10 runs: .62 s
 python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 90 10 90 10 100 0 --overlap True -> Average Total Latency after 10 runs: 1.11 s
-python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 80 20 80 20 100 0 --overlap True -> Average Total Latency after 10 runs: 2.69 s
-python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 70 30 70 30 100 0 --overlap True -> Average Total Latency after 10 runs: 9.32 s
+python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 80 20 80 20 100 0 --overlap True -> Average Total Latency after 10 runs: 2.70 s
+python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 70 30 70 30 100 0 --overlap True -> Average Total Latency after 10 runs: 9.33 s
 python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 60 40 60 40 100 0 --overlap True -> Average Total Latency after 10 runs: 11.05 s
-python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 50 50 50 50 100 0 --overlap True -> Average Total Latency after 10 runs: 11.66 s
+python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 50 50 50 50 100 0 --overlap True -> Average Total Latency after 10 runs: 11.68 s
 python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 40 60 40 60 100 0 --overlap True -> Average Total Latency after 10 runs: 12.31 s
 python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 30 70 30 70 100 0 --overlap True -> Average Total Latency after 10 runs: 14.02 s
-python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 20 80 20 80 100 0 --overlap True -> Average Total Latency after 10 runs: 20.79 s
-python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 10 90 10 90 100 0 --overlap True -> Average Total Latency after 10 runs: 22.49 s
-python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 0 100 0 100 100 0 --overlap True -> Average Total Latency after 10 runs: 22.51 s
+python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 20 80 20 80 100 0 --overlap True -> Average Total Latency after 10 runs: 20.81 s
+python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 10 90 10 90 100 0 --overlap True -> Average Total Latency after 10 runs: 22.50 s
+python3 -m flexllmgen.flex_opt --model facebook/opt-6.7b --percent 0 100 0 100 100 0 --overlap True -> Average Total Latency after 10 runs: 22.53 s
